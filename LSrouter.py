@@ -26,8 +26,9 @@ class LSrouter(Router):
 	self.seq = 0					# Sequence number	
 	self.G = nx.Graph()				# For tracking foreign link states
 	self.G.add_node(self.addr)			# Add myself to the network graph
-	self.most_recent = ''
-	self.all_LS = {}
+	self.most_recent = ''		# For debugging ONLY
+	self.all_LS = {}				# Track all routers' link states
+	self.all_seqs = {}				# Track all routers' sequence numebrs
 
 
     def handlePacket(self, port, packet):
@@ -50,16 +51,19 @@ class LSrouter(Router):
 	    seq_num = msg[0]					# Take note of the sequence number
 	    recv_state = msg[1]					# Take note of the recv'd link state
 	    self.most_recent = msg
-	    update = True
-	    if packet.srcAddr in self.all_LS:
-	    	if recv_state == self.all_LS[packet.srcAddr]:
-			update = False
-		else:
+	    update = False
+	    if packet.srcAddr in self.all_LS:				# If I am aware of this router... 
+	    	if not recv_state == self.all_LS[packet.srcAddr] and seq_num > self.all_seqs[packet.srcAddr]:
+			update = True
 			self.all_LS[packet.srcAddr] = recv_state
+			self.all_seqs[packet.srcAddr] = seq_num					
+		else:
+			pass
 	    else:
+		update = True
 		self.all_LS[packet.srcAddr] = recv_state 
-            if seq_num > self.seq and update:			# As long as this is a new seq num...
-		self.seq = seq_num				# Update my sequence number
+		self.all_seqs[packet.srcAddr] = seq_num
+            if update:			# As long as this is a new seq num...
 		if self.G.has_node(packet.srcAddr):		# If topology has this address:
 			self.G.remove_node(packet.srcAddr)	# Prepare to update it
 		self.G.add_node(packet.srcAddr)			
@@ -71,6 +75,7 @@ class LSrouter(Router):
 				self.fwd_table[address] = 0
 		if not packet.srcAddr in self.fwd_table:	# Add src to my fwd_table if needbe
 			self.fwd_table[packet.srcAddr] = 0
+		old_fwd_table = self.fwd_table
 		for dst in self.fwd_table:			# Update my forwarding table
 			try:
 				path = nx.dijkstra_path(self.G,self.addr,dst,'weight')	# Calculate shortest path to each entry
@@ -157,9 +162,10 @@ class LSrouter(Router):
 
     def debugString(self):
         """TODO: generate a string for debugging in network visualizer"""
-	table_str = ''
-	for dst in self.fwd_table:
-		table_str = table_str + 'For msg going to ' + str(dst) + ' forward to ' + str(self.fwd_table[dst]) + '\n'
-        return 'LS: ' + str(self.link_state) + '\n Neighbors: ' + str(self.neighbors) + \
+	table_str = 'I know of '
+	for dst in self.all_LS:
+		table_str = table_str + dst + ', '
+        return 'LS: ' + str(self.link_state) + '\n Neighbors: ' + str(self.neighbors) + '\nI have ' + str(len(self.neighbors)) + ' neighbors.' +\
+			'\nThere are ' + str(len(self.all_LS)) +' other routers in my network topology' + \
 			"\n This router's seq num: " + str(self.seq) + '\n\nMost recent packet contents recvd: \n' + str(self.most_recent) \
 			+ '\n' + table_str
